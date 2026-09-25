@@ -727,7 +727,9 @@ function readFileWithinLimit(file) {
   // instead of refusing every input: lstat rejects symlinks and NTFS junctions
   // before opening, the regular-file check after opening rejects named pipes,
   // and comparing (dev, ino) across the open detects the final component being
-  // replaced mid-flight (barring file-index reuse).
+  // replaced mid-flight. The identity comparison uses bigint stats: NTFS file
+  // IDs are 64-bit and lose their low bits as plain Numbers above 2^53, which
+  // would let a swap between adjacent IDs pass unnoticed.
   let openedFrom = null;
   let descriptor;
   if (hasPosixSafeOpen) {
@@ -738,7 +740,7 @@ function readFileWithinLimit(file) {
       throw error;
     }
   } else {
-    openedFrom = fs.lstatSync(file);
+    openedFrom = fs.lstatSync(file, { bigint: true });
     if (openedFrom.isSymbolicLink()) throw new SafeInputError("input must not be a symlink");
     try {
       descriptor = fs.openSync(file, fs.constants.O_RDONLY);
@@ -748,9 +750,11 @@ function readFileWithinLimit(file) {
     }
   }
   try {
-    const stat = fs.fstatSync(descriptor);
+    const stat = openedFrom
+      ? fs.fstatSync(descriptor, { bigint: true })
+      : fs.fstatSync(descriptor);
     if (!stat.isFile()) throw new SafeInputError("input must be a regular file");
-    if (openedFrom && openedFrom.ino !== 0 && (stat.dev !== openedFrom.dev || stat.ino !== openedFrom.ino)) {
+    if (openedFrom && openedFrom.ino !== 0n && (stat.dev !== openedFrom.dev || stat.ino !== openedFrom.ino)) {
       throw new SafeInputError("input was replaced while being opened");
     }
     if (stat.size > MAX_INPUT_BYTES) throw new SafeInputError(`input exceeds ${MAX_INPUT_BYTES} byte limit`);
