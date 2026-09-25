@@ -612,7 +612,8 @@ function readFileWithinLimit(file) {
   // and comparing (dev, ino) across the open detects the final component being
   // replaced mid-flight. The identity comparison uses bigint stats: NTFS file
   // IDs are 64-bit and lose their low bits as plain Numbers above 2^53, which
-  // would let a swap between adjacent IDs pass unnoticed.
+  // would let a swap between adjacent IDs pass unnoticed. A filesystem that
+  // cannot supply an identity fails closed instead of skipping the check.
   let openedFrom = null;
   let descriptor;
   if (hasPosixSafeOpen) {
@@ -645,8 +646,13 @@ function readFileWithinLimit(file) {
     if (!stat.isFile()) {
       throw new SafeInputError("input must be a regular file");
     }
-    if (openedFrom && openedFrom.ino !== 0n && (stat.dev !== openedFrom.dev || stat.ino !== openedFrom.ino)) {
-      throw new SafeInputError("input was replaced while being opened");
+    if (openedFrom) {
+      if (openedFrom.ino === 0n || stat.ino === 0n) {
+        throw new SafeInputError("file identity is unavailable");
+      }
+      if (stat.dev !== openedFrom.dev || stat.ino !== openedFrom.ino) {
+        throw new SafeInputError("input was replaced while being opened");
+      }
     }
     if (stat.size > LIMITS.inputBytes) {
       throw new SafeInputError(`input exceeds ${LIMITS.inputBytes} byte limit`);

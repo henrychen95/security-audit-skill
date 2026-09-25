@@ -827,3 +827,45 @@ test("fallback accepts an unchanged input through the bigint identity match", { 
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("fallback fails closed when the pre-open identity is unavailable", { skip: !HAS_INPUT_FALLBACK }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-toctou-"));
+  try {
+    const inputPath = path.join(directory, "coverage-ledger.json");
+    fs.writeFileSync(inputPath, JSON.stringify([unit()]));
+    const realLstat = fs.lstatSync;
+    try {
+      fs.lstatSync = (target, options) => {
+        const entry = realLstat(target, options);
+        entry.ino = 0n; // a filesystem that cannot supply an identity
+        return entry;
+      };
+      assert.throws(() => readFileWithinLimit(inputPath), /file identity is unavailable/);
+    } finally {
+      fs.lstatSync = realLstat;
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("fallback fails closed when the opened identity is unavailable", { skip: !HAS_INPUT_FALLBACK }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-toctou-"));
+  try {
+    const inputPath = path.join(directory, "coverage-ledger.json");
+    fs.writeFileSync(inputPath, JSON.stringify([unit()]));
+    const realFstat = fs.fstatSync;
+    try {
+      fs.fstatSync = (descriptor, options) => {
+        const entry = realFstat(descriptor, options);
+        entry.ino = 0n; // a filesystem that cannot supply an identity
+        return entry;
+      };
+      assert.throws(() => readFileWithinLimit(inputPath), /file identity is unavailable/);
+    } finally {
+      fs.fstatSync = realFstat;
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
