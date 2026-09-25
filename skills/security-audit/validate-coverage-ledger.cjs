@@ -721,21 +721,38 @@ function collectUnitErrors(unit, index) {
 function readFileWithinLimit(file) {
   const noFollow = fs.constants.O_NOFOLLOW;
   const nonBlock = fs.constants.O_NONBLOCK;
-  if (!Number.isInteger(noFollow) || noFollow === 0 || !Number.isInteger(nonBlock) || nonBlock === 0) {
-    // Node exposes no race-safe fallback on these platforms, so reject all inputs.
-    throw new SafeInputError("OS no-follow and nonblocking input protection is unavailable");
-  }
+  const hasPosixSafeOpen = Number.isInteger(noFollow) && noFollow !== 0 && Number.isInteger(nonBlock) && nonBlock !== 0;
 
+  // Platforms without O_NOFOLLOW/O_NONBLOCK (Windows) get a best-effort fallback
+  // instead of refusing every input: lstat rejects symlinks and NTFS junctions
+  // before opening, the regular-file check after opening rejects named pipes,
+  // and comparing (dev, ino) across the open detects the final component being
+  // replaced mid-flight (barring file-index reuse).
+  let openedFrom = null;
   let descriptor;
-  try {
-    descriptor = fs.openSync(file, fs.constants.O_RDONLY | noFollow | nonBlock);
-  } catch (error) {
-    if (error && (error.code === "ELOOP" || error.code === "EMLINK")) throw new SafeInputError("input must not be a symlink");
-    throw error;
+  if (hasPosixSafeOpen) {
+    try {
+      descriptor = fs.openSync(file, fs.constants.O_RDONLY | noFollow | nonBlock);
+    } catch (error) {
+      if (error && (error.code === "ELOOP" || error.code === "EMLINK")) throw new SafeInputError("input must not be a symlink");
+      throw error;
+    }
+  } else {
+    openedFrom = fs.lstatSync(file);
+    if (openedFrom.isSymbolicLink()) throw new SafeInputError("input must not be a symlink");
+    try {
+      descriptor = fs.openSync(file, fs.constants.O_RDONLY);
+    } catch (error) {
+      if (error && (error.code === "ELOOP" || error.code === "EMLINK")) throw new SafeInputError("input must not be a symlink");
+      throw error;
+    }
   }
   try {
     const stat = fs.fstatSync(descriptor);
     if (!stat.isFile()) throw new SafeInputError("input must be a regular file");
+    if (openedFrom && openedFrom.ino !== 0 && (stat.dev !== openedFrom.dev || stat.ino !== openedFrom.ino)) {
+      throw new SafeInputError("input was replaced while being opened");
+    }
     if (stat.size > MAX_INPUT_BYTES) throw new SafeInputError(`input exceeds ${MAX_INPUT_BYTES} byte limit`);
 
     const chunks = [];

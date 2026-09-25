@@ -17,10 +17,12 @@ const {
 const validatorPath = path.join(__dirname, "validate-coverage-ledger.cjs");
 const CLI_TIMEOUT_MS = 5000;
 const HOSTILE_CLI_TIMEOUT_MS = 15000;
-const HAS_SAFE_INPUT_OPEN = Number.isInteger(fs.constants.O_NOFOLLOW) &&
+// True wherever the validator can safely open inputs: the POSIX safe open, or
+// the Windows fallback (symlink/junction rejection plus identity comparison).
+const HAS_SAFE_INPUT_OPEN = (Number.isInteger(fs.constants.O_NOFOLLOW) &&
   fs.constants.O_NOFOLLOW !== 0 &&
   Number.isInteger(fs.constants.O_NONBLOCK) &&
-  fs.constants.O_NONBLOCK !== 0;
+  fs.constants.O_NONBLOCK !== 0) || process.platform === "win32";
 
 function unit(overrides = {}) {
   const canonicalRefs = overrides.canonical_refs || {

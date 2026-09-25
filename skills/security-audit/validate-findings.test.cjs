@@ -15,10 +15,12 @@ const {
 const validatorPath = path.join(__dirname, "validate-findings.cjs");
 const CLI_TIMEOUT_MS = 5000;
 const HOSTILE_CLI_TIMEOUT_MS = 15000;
-const HAS_SAFE_INPUT_OPEN = Number.isInteger(fs.constants.O_NOFOLLOW) &&
+// True wherever the validator can safely open inputs: the POSIX safe open, or
+// the Windows fallback (symlink/junction rejection plus identity comparison).
+const HAS_SAFE_INPUT_OPEN = (Number.isInteger(fs.constants.O_NOFOLLOW) &&
   fs.constants.O_NOFOLLOW !== 0 &&
   Number.isInteger(fs.constants.O_NONBLOCK) &&
-  fs.constants.O_NONBLOCK !== 0;
+  fs.constants.O_NONBLOCK !== 0) || process.platform === "win32";
 const TERMINAL_CONTROL_PAYLOAD = "\u001b\u0007\u0085\u202e\u034f\ufe0f";
 const TERMINAL_CONTROL_BYTES = [
   Buffer.from([0x1b]),
